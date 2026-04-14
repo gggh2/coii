@@ -5,11 +5,30 @@ build-backend = "hatchling.build"
 [project]
 name = "coii"
 version = "0.1.0"
-description = "Coii Python SDK — LLM experimentation"
+description = "Open-source LLM A/B testing SDK — run experiments across models, track cost and conversion in production"
+readme = "README.md"
+license = {file = "LICENSE"}
 requires-python = ">=3.11"
 dependencies = [
     "httpx>=0.27.0",
 ]
+keywords = ["llm", "a/b testing", "openai", "anthropic", "experimentation", "mlops"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://github.com/gggh2/coii"
+Repository = "https://github.com/gggh2/coii"
+"Bug Tracker" = "https://github.com/gggh2/coii/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["coii"]
