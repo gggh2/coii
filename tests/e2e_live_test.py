@@ -30,7 +30,7 @@ os.environ["COII_DATABASE_URL"] = "sqlite+aiosqlite:///./coii_live_test.db"
 import pathlib
 pathlib.Path("coii_live_test.db").unlink(missing_ok=True)
 
-OPENROUTER_KEY = "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"
+OPENROUTER_KEY = os.environ["OPENROUTER_API_KEY"]
 MODEL_CONTROL    = "google/gemma-3-4b-it:free"
 MODEL_CHALLENGER = "liquid/lfm-2.5-1.2b-instruct:free"
 SERVER_URL       = "http://localhost:18080"

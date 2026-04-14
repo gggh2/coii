@@ -16,32 +16,35 @@ Open-source LLM A/B testing with real business outcomes. Run experiments across 
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-## Quick Start
+## Getting Started
 
-**Server**
+### 1. Install
 
 ```bash
+# Server
 cd server
-uv run --with hatchling pip install -e .
+uv pip install -e .
 uv run coii serve
 # → Dashboard  http://localhost:8080
+# → API docs   http://localhost:8080/docs
 ```
 
-**SDK**
-
 ```bash
+# SDK (separate terminal, in your app's virtualenv)
 cd sdk
 uv pip install -e .
 ```
 
-**Frontend** (optional, dashboard is embedded in the server)
+### 2. Set up an experiment in the dashboard
 
-```bash
-cd frontend
-npm install && npm run dev   # http://localhost:5173 — proxies API to :8080
-```
+1. Open `http://localhost:8080` → **New Experiment**
+2. Fill in:
+   - **Current model** — your production model (e.g. `openai / gpt-4o`, traffic 60%)
+   - **Challengers** — models to test (e.g. `anthropic / claude-sonnet-4-6`, 20%; `google / gemini-2.5-flash`, 20%)
+   - **Outcome events** — the business signals you care about (e.g. `ticket_resolved`, `purchase`)
+3. Click **Start** — the experiment is now live and assigning users to variants
 
-## Usage
+### 3. Instrument your code
 
 ```python
 from coii import Coii
@@ -49,23 +52,34 @@ import openai
 
 coii = Coii(host="http://localhost:8080")
 client = openai.OpenAI()
-coii.instrument(client)          # patches SDK — tracks latency, tokens, cost
+coii.instrument(client)          # auto-tracks latency, tokens, cost
 
 def handle(user_id: str, message: str) -> str:
-    ctx = coii.start(user_id)    # gets variant assignment
+    ctx = coii.start(user_id)    # assigns user to a variant
     resp = client.chat.completions.create(
-        model=ctx.model,         # set by experiment; falls back to default_model
+        model=ctx.model,         # the assigned model — "gpt-4o", "claude-sonnet-4-6", etc.
         messages=[{"role": "user", "content": message}],
     )
     return resp.choices[0].message.content
 
-def on_resolved(user_id: str):
-    coii.outcome(user_id, "ticket_resolved")   # ties outcome to LLM call
+def on_ticket_resolved(user_id: str):
+    coii.outcome(user_id, "ticket_resolved")   # ties the outcome back to the variant
 ```
 
-1. Open `http://localhost:8080` → **New Experiment**
-2. Set current model + challengers + traffic split + outcome names
-3. After enough traffic, the dashboard shows per-variant stats and a net-ROI recommendation
+### 4. Read the results
+
+Once you have enough traffic, open the experiment detail page in the dashboard. It shows per-variant conversion rates, cost, latency, statistical significance, and a plain-English recommendation with net ROI in dollars.
+
+---
+
+### Frontend dev server (optional)
+
+The dashboard is embedded in the server binary. If you want to iterate on the frontend:
+
+```bash
+cd frontend
+npm install && npm run dev   # http://localhost:5173 — proxies API to :8080
+```
 
 ## License
 
