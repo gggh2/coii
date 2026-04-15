@@ -3,8 +3,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "coii"
-version = "0.1.0"
+name = "coii-sdk"
+version = "0.1.1"
 description = "Open-source LLM A/B testing SDK — run experiments across models, track cost and conversion in production"
 readme = "README.md"
 license = {file = "LICENSE"}

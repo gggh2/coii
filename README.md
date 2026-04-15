@@ -31,8 +31,8 @@ uv run coii serve
 
 ```bash
 # SDK (separate terminal, in your app's virtualenv)
-cd sdk
-uv pip install -e .
+pip install coii-sdk
+# or for local development: cd sdk && uv pip install -e .
 ```
 
 ### 2. Set up an experiment in the dashboard
