@@ -2,6 +2,10 @@
 
 Open-source LLM A/B testing with real business outcomes. Run experiments across models, track cost and conversion in production, and get a plain-English recommendation.
 
+[![PyPI version](https://img.shields.io/pypi/v/coii-sdk)](https://pypi.org/project/coii-sdk/)
+[![Python 3.11+](https://img.shields.io/pypi/pyversions/coii-sdk)](https://pypi.org/project/coii-sdk/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 ```
 ┌───────────────────────┬─────────────┬────────────────┬─────────────┐
 │                       │ GPT-4o      │ Claude Sonnet  │ Gemini Flash│
@@ -21,18 +25,17 @@ Open-source LLM A/B testing with real business outcomes. Run experiments across 
 ### 1. Install
 
 ```bash
-# Server
+pip install coii-sdk
+```
+
+Start the server (self-hosted dashboard + API):
+
+```bash
 cd server
 uv pip install -e .
 uv run coii serve
 # → Dashboard  http://localhost:8080
 # → API docs   http://localhost:8080/docs
-```
-
-```bash
-# SDK (separate terminal, in your app's virtualenv)
-pip install coii-sdk
-# or for local development: cd sdk && uv pip install -e .
 ```
 
 ### 2. Set up an experiment in the dashboard
