@@ -77,8 +77,16 @@ run_setup() {
   if [ "${COII_NONINTERACTIVE:-}" = "1" ]; then
     c_blue "→ coii setup --wizard --non-interactive"
     coii setup --wizard --non-interactive
+    return
+  fi
+  c_blue "→ coii setup --wizard"
+  # When run via `curl … | bash`, this script's stdin is the pipe from curl,
+  # not the terminal — so the wizard's input() calls would EOF immediately.
+  # Redirect stdin from /dev/tty so prompts work. Fall back to inherited
+  # stdin if no tty is available (rare; the wizard will fail loudly).
+  if [ -r /dev/tty ]; then
+    coii setup --wizard </dev/tty
   else
-    c_blue "→ coii setup --wizard"
     coii setup --wizard
   fi
 }
