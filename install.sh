@@ -26,9 +26,19 @@ REPO="${COII_REPO:-https://github.com/gggh2/coii.git}"
 REF="${COII_REF:-main}"
 SUBDIR="${COII_SUBDIR:-backend}"
 
+# Snapshot the user's incoming PATH so we can detect at the end whether the
+# uv tool bin dir is on their persistent shell PATH or only on our augmented
+# in-script PATH.
+ORIG_PATH="$PATH"
+# Make sure uv's standard install location is reachable for this session.
+# (uv installer puts binaries under $HOME/.local/bin or $HOME/.cargo/bin.)
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+UV_BIN_DIR=""
+
 c_blue() { printf '\033[34m%s\033[0m\n' "$*"; }
 c_green() { printf '\033[32m%s\033[0m\n' "$*"; }
 c_red() { printf '\033[31m%s\033[0m\n' "$*" >&2; }
+c_yellow() { printf '\033[33m%s\033[0m\n' "$*"; }
 
 require_uv() {
   if command -v uv >/dev/null 2>&1; then
@@ -37,8 +47,6 @@ require_uv() {
   fi
   c_blue "→ uv not found, installing via astral.sh installer"
   curl -LsSf https://astral.sh/uv/install.sh | sh
-  # uv installer puts the binary in $HOME/.local/bin or similar; ensure PATH for this session
-  export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
   command -v uv >/dev/null 2>&1 || {
     c_red "uv install failed — check the astral.sh installer output above"
     exit 1
@@ -56,6 +64,13 @@ install_pkg() {
   fi
   c_blue "→ uv tool install ${spec}"
   uv tool install --force "$spec"
+  # Prepend uv's tool bin dir so `coii` is callable in this session even if
+  # the user's shell rc doesn't have it yet. uv prints this dir as a warning
+  # when it isn't on PATH; we also tell the user how to make it permanent.
+  UV_BIN_DIR="$(uv tool dir --bin 2>/dev/null || true)"
+  if [ -n "$UV_BIN_DIR" ]; then
+    export PATH="$UV_BIN_DIR:$PATH"
+  fi
 }
 
 run_setup() {
@@ -70,6 +85,14 @@ run_setup() {
 
 print_next() {
   c_green "✓ coii installed."
+  # Warn if the uv tool bin dir isn't on the user's persistent PATH — without
+  # this, `coii` won't be callable in a fresh shell.
+  if [ -n "$UV_BIN_DIR" ] && ! printf ':%s:' "$ORIG_PATH" | grep -q ":$UV_BIN_DIR:"; then
+    c_yellow ""
+    c_yellow "⚠ $UV_BIN_DIR is not on your shell PATH."
+    c_yellow "  Add it permanently with:  uv tool update-shell"
+    c_yellow "  Or for this session:      export PATH=\"$UV_BIN_DIR:\$PATH\""
+  fi
   cat <<'EOF'
 
 Next steps:
