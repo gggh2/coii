@@ -23,9 +23,9 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
-PKG_DIR="$REPO_ROOT/services/coii/backend"
-ENV_FILE="$REPO_ROOT/services/coii/.env.local_deploy"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PKG_DIR="$REPO_ROOT/backend"
+ENV_FILE="$REPO_ROOT/.env.local_deploy"
 BACKUP="/tmp/coii_e2e_backup_$$"
 SERVE_PORT=3099
 SERVE_LOG="/tmp/coii_e2e_serve_$$.log"
@@ -132,12 +132,12 @@ echo "$out" | grep -q "seeded" || fail "coii setup did not print seed summary"
   fail "coii setup overwrote a user file (config.json hash changed)"
 ok "coii setup ≡ coii init (no overwrites)"
 
-# ── 5z. `services/coii/install.sh` end-to-end with COII_NONINTERACTIVE=1
+# ── 5z. `install.sh` end-to-end with COII_NONINTERACTIVE=1
 # Drives the curl|bash code path against a local git URL so we don't hit
 # GitHub. Verifies: install.sh runs uv tool install + the non-interactive
 # wizard, leaving ~/.coii populated and coii still on PATH.
-step "services/coii/install.sh (curl|bash flow) — local file://, non-interactive"
-INSTALL_SH="$REPO_ROOT/services/coii/install.sh"
+step "install.sh (curl|bash flow) — local file://, non-interactive"
+INSTALL_SH="$REPO_ROOT/install.sh"
 [ -x "$INSTALL_SH" ] || { chmod +x "$INSTALL_SH" 2>/dev/null || true; }
 # Tear down so install.sh exercises the full install path.
 uv tool uninstall coii >/dev/null 2>&1 || true

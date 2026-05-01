@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # coii installer — one-liner entry for the Personal Agent Workforce.
 #
-#   curl -fsSL https://raw.githubusercontent.com/gggh2/playground/main/services/coii/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/gggh2/coii/main/install.sh | bash
 #
 # Steps:
 #   1. Install `uv` if missing (asks first when running interactively).
@@ -10,9 +10,9 @@
 #      then seeds ~/.coii/ with default agents + workflows.
 #
 # Override the source ref via env vars:
-#   COII_REPO=https://github.com/gggh2/playground.git
+#   COII_REPO=https://github.com/gggh2/coii.git
 #   COII_REF=main
-#   COII_SUBDIR=services/coii/backend
+#   COII_SUBDIR=backend
 #
 # Run the wizard non-interactively (for CI / e2e):
 #   COII_NONINTERACTIVE=1   plus the wizard's own env inputs
@@ -22,9 +22,9 @@
 
 set -euo pipefail
 
-REPO="${COII_REPO:-https://github.com/gggh2/playground.git}"
+REPO="${COII_REPO:-https://github.com/gggh2/coii.git}"
 REF="${COII_REF:-main}"
-SUBDIR="${COII_SUBDIR:-services/coii/backend}"
+SUBDIR="${COII_SUBDIR:-backend}"
 
 c_blue() { printf '\033[34m%s\033[0m\n' "$*"; }
 c_green() { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -83,7 +83,7 @@ To remove later:
   • coii uninstall          delete ~/.coii/ (runtime data + memory)
   • uv tool uninstall coii  remove the CLI binary
 
-Docs: https://github.com/gggh2/playground/tree/main/services/coii
+Docs: https://github.com/gggh2/coii
 EOF
 }
 

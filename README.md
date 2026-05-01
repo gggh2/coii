@@ -11,7 +11,7 @@ data leaving your laptop.
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gggh2/playground/main/services/coii/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/gggh2/coii/main/install.sh | bash
 ```
 
 The installer pulls `uv` if missing, installs the `coii` CLI, and drops
@@ -87,7 +87,7 @@ Drop a class into `backend/app/runtimes/providers/` and register it in
 ## Layout
 
 ```
-services/coii/
+coii/
 ├── install.sh                # one-liner installer
 └── backend/app/
     ├── activities/           # business logic (Result-typed)
@@ -104,8 +104,8 @@ memory, and per-ticket workspaces. Never checked in.
 ## Hacking
 
 ```bash
-git clone https://github.com/gggh2/playground
-cd playground/services/coii/backend
+git clone https://github.com/gggh2/coii
+cd coii/backend
 uv sync
 uv run pytest                       # unit + integration tests
 ./scripts/e2e_all.sh                # install + polling + dispatch e2e (live Linear)
