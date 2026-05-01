@@ -220,6 +220,19 @@ def _ask_secret(prompt: str) -> str:
     return getpass.getpass(f"{prompt} (input hidden): ").strip()
 
 
+def _ask_yes_no(prompt: str, default: bool = True) -> bool:
+    suffix = " [Y/n]" if default else " [y/N]"
+    while True:
+        raw = input(f"{prompt}{suffix}: ").strip().lower()
+        if not raw:
+            return default
+        if raw in ("y", "yes"):
+            return True
+        if raw in ("n", "no"):
+            return False
+        print("  please answer y or n")
+
+
 def _print_header(title: str) -> None:
     print()
     print(f"── {title} " + "─" * max(0, 60 - len(title)))
