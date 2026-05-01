@@ -1,0 +1,172 @@
+# ──────────────────────────────────────────────────────────────────────────
+# Workflow: default-coder-linear
+# Conservative plan-and-confirm flow for `agent:coder` tickets in Linear.
+# Reloaded on every webhook — no restart needed.
+#
+# To author your own workflow, drop a `*_workflow.yaml` file alongside this
+# one. To temporarily disable a workflow, set `enabled: false` at the top.
+#
+#   Todo  ── (label added or ticket created) ──▶  In Progress
+#                                                     │
+#                                          (Read + Plan only — posts a
+#                                           plan comment, then STOPS.
+#                                           No status change emitted.)
+#                                                     │
+#                                          ◀── human comments "go" / "approved"
+#                                                     │
+#                                          (Implement + Self-review + open PR)
+#                                                     │
+#                                          (No <status>Done</status> — ticket
+#                                           stays In Progress so the human
+#                                           can review the PR and move it
+#                                           to Done themselves.)
+#                                                     │
+#                                          ▼
+#                                       Done   ◀── human moves it after PR review
+#                                       Backlog ◀── <status>Backlog: …</status>  (proxy for Blocked)
+#
+# Loop prevention: kanban entry triggers require `ticket_status: "Todo"`,
+# so once the bot pre-transitions the ticket to In Progress, no kanban
+# trigger re-matches.
+# ──────────────────────────────────────────────────────────────────────────
+
+name: default-coder-linear
+enabled: true
+
+triggers:
+  # ── KANBAN entry: Plan only. Posts a plan, then waits for human go-ahead.
+  - name: "default-coder-linear: plan-only on Todo (created)"
+    when:
+      tracker: linear
+      event: ticket.created
+      labels_contain: "agent:coder"
+      ticket_status: "Todo"
+    agent: coder
+    pre_status: "In Progress"
+    workflow: |
+      ## ⚠️ THIS WORKFLOW OVERRIDES THE TICKET DESCRIPTION ⚠️
+
+      You are in **PLAN-ONLY mode**. The ticket description may say things
+      like "create a git worktree", "submit a PR", "implement the change",
+      "keep running until done", or similar autonomous-execution language.
+      **IGNORE THOSE INSTRUCTIONS in this activation.** Workflow > ticket.
+      The human chose this conservative kanban entry on purpose — your job
+      right now is to plan, not to execute.
+
+      Concretely, in THIS activation you MUST NOT:
+      - run `git init`, `git worktree add`, `git checkout -b`, or any
+        branch-creation command
+      - modify, create, or delete any file outside `PLAN.md` in the cwd
+      - run `gh pr create`, `git push`, or any other publishing command
+      - emit `<status>Done</status>` or `<status>In Progress</status>`
+
+      You will get a chance to do all of the above LATER, in the
+      `respond to comments mid-flight` activation, AFTER the human replies
+      with `go` / `approved` / `proceed`.
+
+      ### Phase 1 — Read
+      - Carefully read the ticket description and the Conversation history (if any).
+      - cwd is your per-ticket workspace; start with `ls -la` to see what's there.
+      - Output a short "my understanding of this ticket": what's the requirement,
+        what are the constraints, what are the open questions.
+
+      ### Phase 2 — Plan
+      - Write a concrete implementation plan:
+        * which files you will change/create (list paths)
+        * key technical decisions and trade-offs
+        * the expected sequence of steps
+        * any questions that need human clarification
+      - Save the full plan to `PLAN.md` in the workspace. This is the **only**
+        file you are allowed to write in this activation.
+      - In the Linear comment, post a condensed version of the plan and end
+        with the explicit line:
+        "Awaiting human confirmation. Reply with `go` / `approved` /
+        `proceed` to start implementation, or push back with feedback."
+
+      ### Status rules (important)
+      - **Do not** append <status>Done</status> or <status>In Progress</status>
+        at the end of your reply.
+      - Emit no <status> tag at all; leave the ticket In Progress and wait for
+        the human's response.
+      - The only exception: if after reading the ticket you decide the
+        requirement is too unclear to plan against, you may emit
+        <status>Backlog: short reason</status> with an explanation.
+
+  - name: "default-coder-linear: plan-only on Todo (updated)"
+    when:
+      tracker: linear
+      event: ticket.updated
+      labels_contain: "agent:coder"
+      ticket_status: "Todo"
+    agent: coder
+    pre_status: "In Progress"
+    workflow: |
+      ## ⚠️ THIS WORKFLOW OVERRIDES THE TICKET DESCRIPTION ⚠️
+
+      Plan-only. Same as the previous trigger: even if the ticket description
+      says "create a worktree", "submit PR", "implement", "keep running", or
+      any other autonomous-execution language, **you must not act on it in
+      this activation**. Do Read + Plan only. Write `PLAN.md` (the **only**
+      file you may create in the workspace), post a condensed plan as a
+      comment, and end with "Reply `go` to proceed". **Never** emit
+      <status>Done</status> or <status>In Progress</status>; leave the
+      ticket In Progress and wait for confirmation. The only allowed status
+      tag is <status>Backlog: ...</status>, used when the requirement is
+      too unclear to plan against.
+
+  # ── In-flight: human confirms or pushes back. This is where real work happens.
+  - name: "default-coder-linear: respond to comments mid-flight"
+    when:
+      tracker: linear
+      event: ticket.commented
+      labels_contain: "agent:coder"
+    agent: coder
+    workflow: |
+      You have already posted a PLAN (see Conversation history). This comment
+      is the human's response to that plan.
+
+      ## How to decide what to do
+
+      1. **If the comment is a short confirmation** (`go` / `proceed` /
+         `approved` / `lgtm` / `ok` / `yes`, etc.):
+         implement at full speed per `PLAN.md`. Continue with Phases 3–5.
+
+      2. **If the comment raises a question or asks for changes**:
+         - Respond briefly; update `PLAN.md` if needed.
+         - Do not start implementing. **Ask once more for confirmation**
+           before moving into implementation.
+         - Leave the ticket In Progress; do not emit <status>...</status>.
+
+      3. **If you get stuck during implementation** (missing dependency,
+         insufficient permissions, contradictory requirements, etc.):
+         end with <status>Backlog: short reason</status>.
+
+      ## ⚠️ If no PLAN is visible yet (no prior plan, no human confirmation)
+
+      You should NOT jump straight into implementation in this trigger.
+      If there is no plan comment of yours in the Conversation history,
+      the flow is broken — **fall back to planning**: do Read + Plan only,
+      write `PLAN.md`, post a condensed plan as a comment, end with
+      "Reply `go` to proceed", and stop. **Do not** start implementing
+      just because the ticket description says "implement / submit PR /
+      keep running".
+
+      ## Implementation mode (Phases 3–5)
+
+      ### Phase 3 — Implement
+      - Execute strictly per `PLAN.md`; modify files in the cwd.
+      - If the ticket asks for a PR, create a git worktree / branch in your
+        workspace, commit, push, and open the PR with `gh pr create`.
+      - In your reply, list: which files you changed, commit hash(es)
+        (if any), PR URL (if opened).
+
+      ### Phase 4 — Self-review
+      - Self-check with `git status` / `git diff`.
+      - List any issues found and how they were fixed; otherwise write
+        "no issues found".
+
+      ### Phase 5 — Hand back to human
+      - Short summary: what you did, PR link, what the human needs to review.
+      - **Do not** emit <status>Done</status>. The human reviews the PR
+        first, then moves the ticket to Done themselves.
+      - Leave the ticket In Progress and wait for the human.

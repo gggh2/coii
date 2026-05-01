@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# One-shot onboarding entrypoint.
+#
+#   ./services/coii/onboard          # interactive setup
+#
+# Delegates to backend/scripts/onboard.py via uv. We sync deps first so a
+# fresh clone works without an explicit `uv sync` step.
+# Seeding ~/.coii/ is skip-if-exists; user-edited files are never overwritten.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$HERE/backend"
+uv sync --quiet
+exec uv run python scripts/onboard.py "$@"

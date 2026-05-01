@@ -1,0 +1,45 @@
+{
+  "version": 2,
+  "service": {
+    "name": "coii",
+    "log_level": "info"
+  },
+  "trackers": {
+    "linear": {
+      "enabled": true,
+      "api_key": { "source": "env", "id": "LINEAR_API_KEY" },
+      "webhook_secret": { "source": "env", "id": "LINEAR_WEBHOOK_SECRET" },
+      "team_keys": [],
+      "poll_interval_seconds": 30
+    }
+  },
+  "models": {
+    "default": "anthropic/claude-sonnet-4-6",
+    "providers": {
+      "anthropic": {
+        "type": "anthropic",
+        "api_key": { "source": "env", "id": "ANTHROPIC_API_KEY" }
+      },
+      "openai": {
+        "type": "openai",
+        "api_key": { "source": "env", "id": "OPENAI_API_KEY" }
+      }
+    }
+  },
+  "runtimes": {
+    "default": {
+      "type": "claude_code",
+      "command": "claude"
+    }
+  },
+  "memory": {
+    "search": { "engine": "ripgrep", "max_results": 10 },
+    "auto_load": { "tier1": true, "tier2_days": 2 }
+  },
+  "secrets": {
+    "providers": {
+      "default": { "source": "env" }
+    }
+  },
+  "env": {}
+}
