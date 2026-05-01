@@ -138,13 +138,14 @@ class TestNonInteractiveCollect:
         monkeypatch.setenv("LINEAR_TEAM_KEY", "LEL")
         monkeypatch.delenv("COII_WIZARD_PROVIDER", raising=False)
         monkeypatch.delenv("LINEAR_WEBHOOK_SECRET", raising=False)
+        monkeypatch.delenv("COII_WIZARD_LOG_LEVEL", raising=False)
         new_env, cfg_updates, team_key = onboard._collect_non_interactive({}, {})
         assert team_key == "LEL"
         assert new_env["LINEAR_API_KEY"] == "lin-tok"
         assert new_env["LINEAR_TEAM_KEY"] == "LEL"
-        # Webhook secret is auto-generated when missing
-        assert len(new_env["LINEAR_WEBHOOK_SECRET"]) == 64
-        assert cfg_updates == {"team_keys": ("LEL",), "log_level": "info"}
+        # Webhook secret + log level only land in output when env vars set them.
+        assert "LINEAR_WEBHOOK_SECRET" not in new_env
+        assert cfg_updates == {"team_keys": ("LEL",)}
 
     def test_with_provider(self, monkeypatch):
         monkeypatch.setenv("LINEAR_API_KEY", "lin-tok")
@@ -162,9 +163,19 @@ class TestNonInteractiveCollect:
         with pytest.raises(SystemExit, match="LINEAR_API_KEY"):
             onboard._collect_non_interactive({}, {})
 
-    def test_missing_team_key_raises(self, monkeypatch):
+    def test_missing_team_key_is_optional(self, monkeypatch):
+        """v1 ships poller-only; team key is now optional. Polling stays disabled
+        until the user sets ``trackers.linear.team_keys`` later."""
         monkeypatch.setenv("LINEAR_API_KEY", "x")
         monkeypatch.delenv("LINEAR_TEAM_KEY", raising=False)
+        new_env, cfg_updates, team_key = onboard._collect_non_interactive({}, {})
+        assert team_key == ""
+        assert "LINEAR_TEAM_KEY" not in new_env
+        assert "team_keys" not in cfg_updates
+
+    def test_invalid_team_key_raises(self, monkeypatch):
+        monkeypatch.setenv("LINEAR_API_KEY", "x")
+        monkeypatch.setenv("LINEAR_TEAM_KEY", "1bad")
         with pytest.raises(SystemExit, match="LINEAR_TEAM_KEY"):
             onboard._collect_non_interactive({}, {})
 

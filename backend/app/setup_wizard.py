@@ -220,19 +220,6 @@ def _ask_secret(prompt: str) -> str:
     return getpass.getpass(f"{prompt} (input hidden): ").strip()
 
 
-def _ask_yes_no(prompt: str, default: bool = True) -> bool:
-    suffix = " [Y/n]" if default else " [y/N]"
-    while True:
-        raw = input(f"{prompt}{suffix}: ").strip().lower()
-        if not raw:
-            return default
-        if raw in ("y", "yes"):
-            return True
-        if raw in ("n", "no"):
-            return False
-        print("  please answer y or n")
-
-
 def _print_header(title: str) -> None:
     print()
     print(f"── {title} " + "─" * max(0, 60 - len(title)))
@@ -276,8 +263,11 @@ _TEAM_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]{1,9}$")
 
 
 def _ask_team_key(default: str) -> str:
+    """Prompt for a Linear team key. Empty input is allowed (returns "")."""
     while True:
-        raw = _ask("Linear team key (uppercase, e.g. ENG, DEMO)", default).upper()
+        raw = _ask("Linear team key (uppercase, e.g. ENG, DEMO) — leave blank to skip", default).upper()
+        if not raw:
+            return ""
         if _TEAM_KEY_RE.match(raw):
             return raw
         print("  must be 2-10 uppercase letters/digits — what Linear shows in ticket IDs (ENG-42 → ENG)")
@@ -337,21 +327,12 @@ def _collect_interactive(
         if existing_arr:
             existing_team = str(existing_arr[0])
     team_key = _ask_team_key(default=existing_team)
-    new_env["LINEAR_TEAM_KEY"] = team_key
-    cfg_updates["team_keys"] = (team_key,)
-
-    if existing.get("LINEAR_WEBHOOK_SECRET"):
-        print(f"  keeping existing LINEAR_WEBHOOK_SECRET ({len(existing['LINEAR_WEBHOOK_SECRET'])} chars)")
-    elif _ask_yes_no("Generate a new webhook signing secret?", default=True):
-        new_env["LINEAR_WEBHOOK_SECRET"] = generate_webhook_secret()
-        print(f"  generated {len(new_env['LINEAR_WEBHOOK_SECRET'])}-char secret")
-        print("  paste this same string into Linear when you create the webhook.")
+    if team_key:
+        new_env["LINEAR_TEAM_KEY"] = team_key
+        cfg_updates["team_keys"] = (team_key,)
     else:
-        new_env["LINEAR_WEBHOOK_SECRET"] = _ask_secret("Paste LINEAR_WEBHOOK_SECRET")
-
-    _print_header("Service")
-    existing_level = (raw_cfg.get("service") or {}).get("log_level") or "info"
-    cfg_updates["log_level"] = _ask("Log level (debug/info/warning)", default=existing_level)
+        print("  ok — skipping team key. Polling stays disabled until you set")
+        print("  trackers.linear.team_keys later via `coii config set`.")
 
     return new_env, cfg_updates, team_key
 
@@ -367,12 +348,9 @@ def _collect_non_interactive(
       ``COII_WIZARD_API_KEY``      provider API key            (required if provider != skip)
       ``COII_WIZARD_MODEL``        model spec                  (default: provider's default)
       ``LINEAR_API_KEY``           Linear personal token        (required)
-      ``LINEAR_TEAM_KEY``          team short-code              (required)
-      ``LINEAR_WEBHOOK_SECRET``    signing secret               (auto-generated if absent)
-      ``COII_WIZARD_LOG_LEVEL``    debug | info | warning       (default: info)
-
-    Anything missing/invalid raises SystemExit so the e2e fails loudly
-    instead of silently writing a half-baked config.
+      ``LINEAR_TEAM_KEY``          team short-code              (optional — polling disabled if blank)
+      ``LINEAR_WEBHOOK_SECRET``    signing secret               (optional — only written if set)
+      ``COII_WIZARD_LOG_LEVEL``    debug | info | warning       (optional — only written if set)
     """
     new_env: dict[str, str] = {}
     cfg_updates: dict = {}
@@ -395,16 +373,19 @@ def _collect_non_interactive(
     new_env["LINEAR_API_KEY"] = linear_key
 
     team_key = (os.getenv("LINEAR_TEAM_KEY") or "").upper()
-    if not _TEAM_KEY_RE.match(team_key):
-        raise SystemExit(f"LINEAR_TEAM_KEY required and must be 2-10 uppercase chars, got {team_key!r}")
-    new_env["LINEAR_TEAM_KEY"] = team_key
-    cfg_updates["team_keys"] = (team_key,)
+    if team_key:
+        if not _TEAM_KEY_RE.match(team_key):
+            raise SystemExit(f"LINEAR_TEAM_KEY must be 2-10 uppercase chars, got {team_key!r}")
+        new_env["LINEAR_TEAM_KEY"] = team_key
+        cfg_updates["team_keys"] = (team_key,)
 
-    new_env["LINEAR_WEBHOOK_SECRET"] = (
-        os.getenv("LINEAR_WEBHOOK_SECRET") or generate_webhook_secret()
-    )
+    webhook_secret = os.getenv("LINEAR_WEBHOOK_SECRET") or ""
+    if webhook_secret:
+        new_env["LINEAR_WEBHOOK_SECRET"] = webhook_secret
 
-    cfg_updates["log_level"] = (os.getenv("COII_WIZARD_LOG_LEVEL") or "info").lower()
+    log_level = (os.getenv("COII_WIZARD_LOG_LEVEL") or "").lower()
+    if log_level:
+        cfg_updates["log_level"] = log_level
     return new_env, cfg_updates, team_key
 
 
@@ -448,7 +429,11 @@ def main(argv: list[str] | None = None) -> int:
 
     _print_header("Next steps")
     print("  1. coii serve --port 3003 --reload")
-    print(f"     (polling will auto-start: trackers.linear.team_keys=[{team_key!r}])")
+    if team_key:
+        print(f"     (polling will auto-start: trackers.linear.team_keys=[{team_key!r}])")
+    else:
+        print("     (no team key set — polling stays disabled. Set one later with:")
+        print("      coii config set trackers.linear.team_keys '[\"ENG\"]')")
     print("  2. Smoke-test polling:  uv run python scripts/e2e_polling.py")
     print()
     print("  Edit ~/.coii/workflows/default_coder_linear_workflow.yaml and ~/.coii/agents/coder/")
