@@ -91,28 +91,34 @@ run_setup() {
   fi
 }
 
+ensure_path() {
+  # If the uv tool bin dir isn't on the user's persistent shell PATH, run
+  # `uv tool update-shell` so future shells pick it up. The user still has
+  # to source their shell rc (or open a new terminal); we tell them how.
+  [ -z "$UV_BIN_DIR" ] && return
+  if printf ':%s:' "$ORIG_PATH" | grep -q ":$UV_BIN_DIR:"; then
+    return
+  fi
+  c_blue "→ uv tool update-shell  (adding $UV_BIN_DIR to your shell rc)"
+  if uv tool update-shell >/dev/null 2>&1; then
+    c_green "  added — open a new terminal, or run:  source your shell rc"
+  else
+    c_yellow "  could not auto-update shell rc; add this line yourself:"
+    c_yellow "    export PATH=\"$UV_BIN_DIR:\$PATH\""
+  fi
+}
+
 print_next() {
   c_green "✓ coii installed."
-  # Warn if the uv tool bin dir isn't on the user's persistent PATH — without
-  # this, `coii` won't be callable in a fresh shell.
-  if [ -n "$UV_BIN_DIR" ] && ! printf ':%s:' "$ORIG_PATH" | grep -q ":$UV_BIN_DIR:"; then
-    c_yellow ""
-    c_yellow "⚠ $UV_BIN_DIR is not on your shell PATH."
-    c_yellow "  Add it permanently with:  uv tool update-shell"
-    c_yellow "  Or for this session:      export PATH=\"$UV_BIN_DIR:\$PATH\""
-  fi
   cat <<'EOF'
 
 Next steps:
-  • coii serve              run the FastAPI backend
-  • Edit ~/.coii/config.json       global config (LLM provider, runtime defaults)
-  • Edit ~/.coii/agents/coder/     identity files (SOUL.md, USER.md, ...)
-  • Drop *_workflow.yaml files into ~/.coii/workflows/ to add triggers
-  • Set ANTHROPIC_API_KEY (and OPENAI_API_KEY if used) in your shell
+  • coii serve                  run the FastAPI backend (default :3001)
+  • Create a Linear ticket with the `agent:coder` label to trigger your
+    first agent run. The poller picks it up on the next interval.
 
 To remove later:
-  • coii uninstall          delete ~/.coii/ (runtime data + memory)
-  • uv tool uninstall coii  remove the CLI binary
+  • coii uninstall              delete ~/.coii/ AND the CLI binary
 
 Docs: https://github.com/gggh2/coii
 EOF
@@ -121,4 +127,5 @@ EOF
 require_uv
 install_pkg
 run_setup
+ensure_path
 print_next

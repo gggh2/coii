@@ -314,7 +314,13 @@ def _collect_interactive(
         cfg_updates["model_spec"] = _ask("Default model spec", default=existing_default)
 
     _print_header("Linear (tracker)")
-    print("  Personal API key: https://linear.app/settings/api")
+    print("  Need a Linear *personal* API token (NOT an OAuth client / workspace key).")
+    print("  How to create one:")
+    print("    1. Open https://linear.app/settings/api")
+    print("    2. Click 'New API key' under the 'Personal API keys' section")
+    print("    3. Name it (e.g. 'coii'), copy the token — starts with 'lin_api_…'")
+    print("  Required scopes: read + write on issues + comments for the team(s)")
+    print("  you want the agent to see.")
     existing_key = existing.get("LINEAR_API_KEY", "")
     existing_hint = " [keep existing]" if existing_key else ""
     key = _ask_secret(f"Paste LINEAR_API_KEY{existing_hint}")
@@ -428,16 +434,14 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  seeded {dst}: {copied} new, {skipped} preserved")
 
     _print_header("Next steps")
-    print("  1. coii serve --port 3003 --reload")
+    print("  1. coii serve")
     if team_key:
-        print(f"     (polling will auto-start: trackers.linear.team_keys=[{team_key!r}])")
+        print(f"     (polling auto-starts: trackers.linear.team_keys=[{team_key!r}])")
     else:
-        print("     (no team key set — polling stays disabled. Set one later with:")
+        print("     (no team key set — polling stays disabled. To enable later:")
         print("      coii config set trackers.linear.team_keys '[\"ENG\"]')")
-    print("  2. Smoke-test polling:  uv run python scripts/e2e_polling.py")
-    print()
-    print("  Edit ~/.coii/workflows/default_coder_linear_workflow.yaml and ~/.coii/agents/coder/")
-    print("  to teach your Agent what to do. Changes apply without restart.")
+    print("  2. In Linear, create a ticket with the `agent:coder` label —")
+    print("     the poller picks it up on the next interval and the agent replies.")
     return 0
 
 

@@ -33,8 +33,9 @@ Then start the backend:
 coii serve        # FastAPI on :3001
 ```
 
-Mention `@coder` on a Linear ticket in your team — the poller picks it
-up on the next interval and the agent replies.
+In Linear, create a ticket and add the `agent:coder` label (or add the
+label to an existing ticket). The poller picks it up on the next
+interval and the agent posts a plan as a comment.
 
 ## Reconfigure later
 
@@ -67,16 +68,22 @@ coder/
 └── workspace.json   # runtime overrides (e.g. pin a different model)
 ```
 
-Workflows in `~/.coii/workflows/*.yaml` map Linear events to agents:
+Workflows in `~/.coii/workflows/*.yaml` map Linear events to agents.
+The bundled `default_coder_linear_workflow.yaml` triggers on the
+`agent:coder` label:
 
 ```yaml
-name: default_coder
-trigger:
-  source: linear
-  event: comment.create
-  match:
-    mentions: ["@coder"]
-agent: coder
+name: default-coder-linear
+triggers:
+  - when:
+      tracker: linear
+      event: ticket.created
+      labels_contain: "agent:coder"
+      ticket_status: "Todo"
+    agent: coder
+    pre_status: "In Progress"
+    workflow: |
+      ...plan-only instructions for the agent...
 ```
 
 ## Add an LLM provider

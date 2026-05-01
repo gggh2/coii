@@ -6,7 +6,9 @@ Usage:
                                      re-run after package upgrades.
     coii serve [--port N]    Run the FastAPI backend.
     coii config ...          Read/edit ~/.coii/config.json (file/get/set/unset/validate).
-    coii uninstall           Delete ~/.coii/ (asks for confirmation).
+    coii uninstall           Delete ~/.coii/ + the `coii` CLI binary
+                                     (asks for confirmation; --keep-cli to keep
+                                     just the binary; --yes to skip the prompt).
     coii version             Print the installed version.
 
 The runtime root is `~/.coii/` (override with $COII_ROOT). Identity files,
@@ -17,7 +19,9 @@ agent memory, and per-agent `MEMORY.md` accumulate there over time.
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -106,12 +110,19 @@ def _summarize(target: Path) -> str:
 
 def cmd_uninstall(args: argparse.Namespace) -> int:
     target = coii_root()
-    if not target.exists():
-        print(f"{target} does not exist; nothing to remove")
-        return 0
+    target_exists = target.exists()
+    remove_cli = not args.keep_cli
 
-    print(f"About to delete: {target}")
-    print(f"  Includes: {_summarize(target)}")
+    print("About to remove:")
+    if target_exists:
+        print(f"  • {target}  ({_summarize(target)})")
+    else:
+        print(f"  • {target}  (already gone)")
+    if remove_cli:
+        print(f"  • the `coii` CLI binary  (via `uv tool uninstall coii`)")
+
+    if not target_exists and not remove_cli:
+        return 0
 
     if args.dry_run:
         print("(dry-run — no changes made)")
@@ -126,9 +137,32 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
             print("aborted")
             return 1
 
-    shutil.rmtree(target)
-    print(f"✓ removed {target}")
-    print("To remove the CLI binary too: uv tool uninstall coii")
+    if target_exists:
+        shutil.rmtree(target)
+        print(f"✓ removed {target}")
+
+    if remove_cli:
+        # Find uv on PATH (or fall back to common install locations) and exec
+        # `uv tool uninstall coii`. We're running inside the binary that is
+        # about to be removed — POSIX lets the OS keep the executable mapped
+        # for any process that already opened it, so the rmdir succeeds and
+        # the current process finishes printing.
+        uv = shutil.which("uv") or shutil.which(
+            "uv", path=os.pathsep.join([
+                os.path.expanduser("~/.local/bin"),
+                os.path.expanduser("~/.cargo/bin"),
+            ])
+        )
+        if uv:
+            try:
+                subprocess.run([uv, "tool", "uninstall", "coii"], check=True)
+                print("✓ removed coii CLI binary")
+            except subprocess.CalledProcessError as exc:
+                print(f"⚠ `uv tool uninstall coii` exited {exc.returncode}; remove it manually")
+                return 1
+        else:
+            print("⚠ uv not found on PATH; run `uv tool uninstall coii` to remove the binary")
+            return 1
     return 0
 
 
@@ -153,9 +187,16 @@ def main() -> None:
     from app import config_cli
     config_cli.register(sub)
 
-    un = sub.add_parser("uninstall", help="delete ~/.coii/ (asks first)")
+    un = sub.add_parser(
+        "uninstall",
+        help="delete ~/.coii/ AND the `coii` CLI binary (asks first)",
+    )
     un.add_argument("--yes", action="store_true", help="skip confirmation prompt")
     un.add_argument("--dry-run", action="store_true", help="show what would be removed")
+    un.add_argument(
+        "--keep-cli", action="store_true",
+        help="keep the `coii` binary; only delete ~/.coii/",
+    )
     un.set_defaults(func=cmd_uninstall)
 
     sub.add_parser("version", help="print installed version").set_defaults(func=cmd_version)

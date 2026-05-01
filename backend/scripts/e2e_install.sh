@@ -15,8 +15,8 @@
 #   7. Polling auto-registers when trackers.linear.team_keys is set in JSON
 #      (verified via /cron/status; the new bug-fix path)
 #   8. `coii serve` boots; /health, /cron/status, POST /cron/run/{name}
-#   9. `coii uninstall --yes`
-#  10. `uv tool uninstall coii`
+#   9. `coii uninstall --yes`  (also removes the CLI binary by default)
+#  10. Confirm binary is gone
 #  11. Final state fully clean
 #
 # Live Linear coverage lives in ./scripts/e2e_polling.py and ./scripts/e2e_demo.py.
@@ -383,14 +383,14 @@ echo "$out" | grep -q "dry-run" || { echo "$out" >&2; fail "--dry-run didn't say
 [ -e ~/.coii ] || fail "~/.coii vanished during --dry-run!"
 ok "uninstall --dry-run kept ~/.coii intact"
 
-step "coii uninstall --yes (real)"
+step "coii uninstall --yes (real, removes ~/.coii AND the CLI binary)"
 coii uninstall --yes
 [ ! -e ~/.coii ] || fail "~/.coii still exists after uninstall"
 ok "~/.coii removed"
 
-# ── 10. uninstall binary
-step "uv tool uninstall coii"
-uv tool uninstall coii >/dev/null
+# ── 10. binary should be gone too — `coii uninstall` shells out to
+#       `uv tool uninstall coii` by default in v0.1+. We just confirm here.
+step "coii CLI binary removed by uninstall"
 hash -r 2>/dev/null || true
 if command -v coii >/dev/null 2>&1 || [ -e "$HOME/.local/bin/coii" ]; then
   fail "coii binary still on PATH or in ~/.local/bin"
