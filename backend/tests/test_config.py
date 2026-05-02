@@ -159,6 +159,83 @@ class TestLoadV2:
 
 
 # ---------------------------------------------------------------------------
+# Migrations — forward-only
+# ---------------------------------------------------------------------------
+
+
+class TestMigrations:
+    def test_empty_registry_at_current_version_is_noop(self, coii_dir):
+        """Default state: no migrations registered, config already at
+        CONFIG_VERSION → load() does not rewrite the file."""
+        path = coii_dir / "config.json"
+        _write(path, {"version": config.CONFIG_VERSION})
+        before = path.read_text()
+        config.load(path)
+        assert path.read_text() == before  # unchanged on disk
+
+    def test_runs_pending_migration_and_persists(self, coii_dir, monkeypatch):
+        """A registered migration runs at load() and the upgraded shape
+        is written back so we don't re-migrate next load."""
+        path = coii_dir / "config.json"
+        _write(path, {"version": 1, "old_field": "value"})
+
+        def _v1_to_v2(raw: dict) -> dict:
+            raw["new_field"] = raw.pop("old_field", "")
+            return raw
+
+        # Register a fake v1→v2 step. CONFIG_VERSION=2 → loop runs once.
+        monkeypatch.setitem(config.MIGRATIONS, 1, _v1_to_v2)
+
+        config.load(path)
+        # Persisted: file now reflects v2 shape.
+        on_disk = json.loads(path.read_text())
+        assert on_disk["version"] == 2
+        assert on_disk["new_field"] == "value"
+        assert "old_field" not in on_disk
+
+        # Second load is a no-op (already at CONFIG_VERSION).
+        before = path.read_text()
+        config.load(path)
+        assert path.read_text() == before
+
+    def test_missing_migration_raises_actionable_error(self, coii_dir, monkeypatch):
+        """If the user's config is below CONFIG_VERSION but no migration
+        is registered for that step, raise with the recovery hint."""
+        path = coii_dir / "config.json"
+        _write(path, {"version": 0})  # impossibly old
+        # CONFIG_VERSION is 2; no migration from 0 registered.
+        monkeypatch.setattr(config, "MIGRATIONS", {})
+        with pytest.raises(RuntimeError, match="no registered migration"):
+            config.load(path)
+
+    def test_in_memory_upgrade_when_persist_fails(
+        self, coii_dir, monkeypatch, caplog,
+    ):
+        """If we can't write the file (read-only fs, perm denied), we
+        still hand back the migrated Config in memory and log."""
+        path = coii_dir / "config.json"
+        _write(path, {"version": 1})
+
+        def _v1_to_v2(raw: dict) -> dict:
+            raw["bumped"] = True
+            return raw
+
+        monkeypatch.setitem(config.MIGRATIONS, 1, _v1_to_v2)
+
+        # Make the file read-only so the persist write raises.
+        path.chmod(0o400)
+        try:
+            cfg = config.load(path)
+        finally:
+            path.chmod(0o600)
+        # The in-memory Config carries the upgrade
+        assert cfg.raw["version"] == 2
+        assert cfg.raw["bumped"] is True
+        # Disk still at v1 (write failed, warning logged)
+        assert json.loads(path.read_text())["version"] == 1
+
+
+# ---------------------------------------------------------------------------
 # env precedence chain
 # ---------------------------------------------------------------------------
 

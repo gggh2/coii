@@ -331,7 +331,7 @@ def _build_typed(raw: dict[str, Any]) -> Config:
         runtimes["default"] = RuntimeConfig()
 
     return Config(
-        version=int(raw.get("version") or CONFIG_VERSION),
+        version=_read_version(raw),
         service=service,
         linear=linear,
         models=models,
@@ -351,15 +351,71 @@ def _read_raw(path: Path) -> dict[str, Any]:
         return {}
 
 
+# ---------------------------------------------------------------------------
+# Migrations
+#
+# Forward-only. Each entry migrates v[k] → v[k+1]. Applied at load time and
+# the upgraded shape is written back so we don't re-migrate every load.
+# Rollback is not supported; the install layer pins the binary version
+# (`COII_REF=<tag> bash install.sh`) but config moves forward only.
+#
+# To ship a v3:
+#   1. Bump CONFIG_VERSION = 3.
+#   2. Write `def _migrate_v2_to_v3(raw): ... return raw`.
+#   3. Register: MIGRATIONS[2] = _migrate_v2_to_v3.
+# ---------------------------------------------------------------------------
+
+from typing import Callable  # noqa: E402
+
+MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {}
+
+
+def _read_version(raw: dict[str, Any]) -> int:
+    """Read raw["version"] as an int. Missing field → CONFIG_VERSION (a
+    fresh empty config is treated as already-current). Explicit 0 / 1 /
+    any sub-current int triggers migration; non-numeric raises."""
+    if "version" not in raw:
+        return CONFIG_VERSION
+    return int(raw["version"])
+
+
+def _migrate(raw: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Apply pending forward migrations. Returns (raw, changed)."""
+    changed = False
+    while True:
+        v = _read_version(raw)
+        if v >= CONFIG_VERSION:
+            return raw, changed
+        fn = MIGRATIONS.get(v)
+        if fn is None:
+            raise RuntimeError(
+                f"config v{v} has no registered migration to v{v + 1}. "
+                f"upgrade coii through the missing version first, or delete "
+                f"{config_path()} and re-run `coii setup --wizard`."
+            )
+        raw = fn(raw)
+        raw["version"] = v + 1
+        log.info("config migrated v%d → v%d", v, v + 1)
+        changed = True
+
+
 def load(path: Path | None = None) -> Config:
-    """Read, env-chain, and return a typed Config.
+    """Read, migrate-if-needed, env-chain, and return a typed Config.
 
     Idempotent — safe to call from tests with isolated paths. Missing or
     malformed config files yield a Config built from each dataclass's
-    field defaults; we don't accept any pre-v2 shape (no migration code).
+    field defaults. If migrations ran, the upgraded shape is persisted
+    back to disk on a best-effort basis (read-only filesystems just keep
+    the in-memory upgrade for the rest of the process).
     """
     cfg_path = path or config_path()
     raw = _read_raw(cfg_path)
+    raw, migrated = _migrate(raw)
+    if migrated and cfg_path.exists():
+        try:
+            cfg_path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+        except OSError as e:
+            log.warning("could not persist upgraded config to %s: %s", cfg_path, e)
     _apply_env_chain(raw)
     return _build_typed(raw)
 
