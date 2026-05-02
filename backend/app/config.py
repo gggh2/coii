@@ -228,6 +228,12 @@ class LinearConfig:
 class ProviderConfig:
     type: str
     api_key_ref: SecretRef | None = None
+    # Optional override for the SDK's default endpoint — useful when the
+    # user's key targets a proxy / regional gateway / OpenAI-compatible
+    # server (DeepSeek, Together, vLLM, Ollama, …). Empty means "use the
+    # SDK default", which itself falls through to the SDK's own env var
+    # (ANTHROPIC_BASE_URL / OPENAI_BASE_URL).
+    base_url: str | None = None
 
     @property
     def api_key(self) -> str | None:
@@ -308,6 +314,7 @@ def _build_typed(raw: dict[str, Any]) -> Config:
         providers[name] = ProviderConfig(
             type=str(cfg.get("type", name)),
             api_key_ref=parse_ref(cfg.get("api_key")),
+            base_url=(str(cfg["base_url"]).strip() or None) if cfg.get("base_url") else None,
         )
     models = ModelsConfig(
         default=str(models_raw.get("default", "anthropic/claude-sonnet-4-6")),

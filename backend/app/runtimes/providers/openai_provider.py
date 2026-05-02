@@ -40,15 +40,26 @@ class OpenAIProvider(LLMProvider):
                 return v
         return os.getenv("OPENAI_API_KEY") or None
 
+    def _resolved_base_url(self) -> str | None:
+        provider = config.get().models.providers.get("openai")
+        if provider is not None and provider.base_url:
+            return provider.base_url
+        return os.getenv("OPENAI_BASE_URL") or None
+
     def is_available(self) -> bool:
         return bool(self._resolved_api_key())
 
     def _client_singleton(self) -> AsyncOpenAI:
         if self._client is None:
             api_key = self._resolved_api_key()
-            self._client = (
-                AsyncOpenAI(api_key=api_key) if api_key else AsyncOpenAI()
-            )
+            base_url = self._resolved_base_url()
+            kwargs: dict[str, str] = {}
+            if api_key:
+                kwargs["api_key"] = api_key
+            if base_url:
+                kwargs["base_url"] = base_url
+                log.info("openai client: base_url=%s", base_url)
+            self._client = AsyncOpenAI(**kwargs)
         return self._client
 
     async def generate_reply(

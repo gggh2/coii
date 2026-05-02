@@ -220,3 +220,31 @@ class TestApplyToConfig:
         onboard.apply_to_config(cfg)  # no kwargs
         # nothing added
         assert cfg == {"version": 2, "service": {"log_level": "info"}}
+
+    def test_provider_base_url_set(self):
+        cfg: dict = {"version": 2}
+        onboard.apply_to_config(
+            cfg, provider_name="anthropic",
+            provider_base_url="https://proxy.example.com",
+        )
+        assert cfg["models"]["providers"]["anthropic"]["base_url"] == \
+            "https://proxy.example.com"
+
+    def test_provider_base_url_empty_drops_existing(self):
+        cfg: dict = {
+            "version": 2,
+            "models": {"providers": {"openai": {
+                "base_url": "https://prev.example.com",
+            }}},
+        }
+        onboard.apply_to_config(
+            cfg, provider_name="openai", provider_base_url="",
+        )
+        # Empty string == "drop the override".
+        assert "base_url" not in cfg["models"]["providers"]["openai"]
+
+    def test_provider_base_url_skipped_when_name_missing(self):
+        cfg: dict = {"version": 2}
+        onboard.apply_to_config(cfg, provider_base_url="https://x.example")
+        # No provider_name → nothing written.
+        assert cfg == {"version": 2}

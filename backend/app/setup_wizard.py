@@ -2,8 +2,9 @@
 
 Walks the user through:
 
-  1. LLM provider + key + model spec → ``models.default`` in config.json
-     plus the actual API key in the env file.
+  1. LLM provider + key + model spec + endpoint URL →
+     ``models.default`` and ``models.providers.<name>.base_url`` in
+     config.json, plus the actual API key in the env file.
   2. Linear API key + team key → secret in env file,
      ``trackers.linear.team_keys`` + structured settings in config.json.
   3. Service log level → ``service.log_level`` in config.json.
@@ -124,8 +125,17 @@ def generate_webhook_secret() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Provider definitions — registry of what we know how to ask about.
-# Adding a new provider = one entry here + an LLMProvider impl.
+# Provider + model registry.
+#
+# `PROVIDER_CHOICES` maps a provider name → the bits the wizard needs to
+# ask the user (env var, help URL, default endpoint). `MODEL_CHOICES` is
+# a flat catalog of curated `<provider>/<model>` specs displayed as a
+# single select list (mirrors openclaw's onboarding shape). Pick one,
+# the wizard derives the provider from the prefix and prompts for that
+# provider's key + endpoint.
+#
+# Adding a new model = one MODEL_CHOICES entry. Adding a new provider =
+# one PROVIDER_CHOICES entry + an LLMProvider implementation.
 # ---------------------------------------------------------------------------
 
 
@@ -136,6 +146,7 @@ class ProviderChoice:
     env_key: str
     default_model: str
     help_url: str
+    default_base_url: str
 
 
 PROVIDER_CHOICES: tuple[ProviderChoice, ...] = (
@@ -145,6 +156,7 @@ PROVIDER_CHOICES: tuple[ProviderChoice, ...] = (
         env_key="ANTHROPIC_API_KEY",
         default_model="anthropic/claude-sonnet-4-6",
         help_url="https://console.anthropic.com/settings/keys",
+        default_base_url="https://api.anthropic.com",
     ),
     ProviderChoice(
         name="openai",
@@ -152,12 +164,54 @@ PROVIDER_CHOICES: tuple[ProviderChoice, ...] = (
         env_key="OPENAI_API_KEY",
         default_model="openai/gpt-4o",
         help_url="https://platform.openai.com/api-keys",
+        default_base_url="https://api.openai.com/v1",
     ),
 )
 
 
 def find_provider(name: str) -> ProviderChoice | None:
     return next((p for p in PROVIDER_CHOICES if p.name == name), None)
+
+
+@dataclass(frozen=True)
+class ModelChoice:
+    spec: str       # "<provider>/<model>" — the value stored in models.default
+    provider: str   # provider key (must match a PROVIDER_CHOICES entry)
+    label: str      # short human description shown next to the spec
+
+
+MODEL_CHOICES: tuple[ModelChoice, ...] = (
+    ModelChoice("anthropic/claude-opus-4-7",   "anthropic", "strongest, slowest, most expensive"),
+    ModelChoice("anthropic/claude-sonnet-4-6", "anthropic", "balanced — recommended default"),
+    ModelChoice("anthropic/claude-haiku-4-5",  "anthropic", "fast & cheap"),
+    ModelChoice("openai/gpt-4o",               "openai",    "OpenAI flagship"),
+    ModelChoice("openai/gpt-4o-mini",          "openai",    "fast & cheap"),
+    ModelChoice("openai/o1",                   "openai",    "reasoning"),
+)
+
+
+def find_model(spec: str) -> ModelChoice | None:
+    return next((m for m in MODEL_CHOICES if m.spec == spec), None)
+
+
+def _parse_known_spec(spec: str) -> tuple[str, str] | None:
+    """Split a `<provider>/<model>` spec into its parts. Returns None if
+    the format is wrong or the provider is unknown to coii.
+
+    Stricter than ``app.runtimes.providers._parse_known_spec`` (which only
+    validates shape) — the wizard uses this to decide whether to prompt
+    for the provider's known env_key + endpoint defaults.
+    """
+    if "/" not in spec:
+        return None
+    provider, _, model = spec.partition("/")
+    provider = provider.strip().lower()
+    model = model.strip()
+    if not provider or not model:
+        return None
+    if find_provider(provider) is None:
+        return None
+    return provider, model
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +226,8 @@ def apply_to_config(
     model_spec: str | None = None,
     team_keys: tuple[str, ...] | None = None,
     poll_interval_seconds: int | None = None,
+    provider_name: str | None = None,
+    provider_base_url: str | None = None,
 ) -> dict:
     """Apply non-secret wizard answers to a raw config dict (in place).
 
@@ -191,6 +247,13 @@ def apply_to_config(
             raw_cfg, ["trackers", "linear", "poll_interval_seconds"],
             poll_interval_seconds,
         )
+    if provider_name and provider_base_url is not None:
+        # Empty string == "drop the override, fall back to SDK default".
+        path = ["models", "providers", provider_name, "base_url"]
+        if provider_base_url:
+            config_cli.set_at(raw_cfg, path, provider_base_url)
+        else:
+            config_cli.unset_at(raw_cfg, path)
     return raw_cfg
 
 
@@ -273,20 +336,73 @@ def _ask_team_key(default: str) -> str:
         print("  must be 2-10 uppercase letters/digits — what Linear shows in ticket IDs (ENG-42 → ENG)")
 
 
-def _pick_provider() -> ProviderChoice | None:
-    print("Pick an LLM provider for the API runtime:")
-    for i, p in enumerate(PROVIDER_CHOICES, start=1):
-        print(f"  {i}) {p.label}")
-    print(f"  {len(PROVIDER_CHOICES) + 1}) Skip — use the local Claude Code CLI only")
+_PICK_KEEP = "__keep__"
+_PICK_SKIP = "__skip__"
+_PICK_CUSTOM = "__custom__"
+
+
+def _pick_model(existing_spec: str) -> tuple[str, ProviderChoice | None]:
+    """Show the curated `<provider>/<model>` list and return (spec, provider).
+
+    Returns:
+      ("", None)              — user picked Skip (no LLM provider).
+      (spec, ProviderChoice)  — a known model was picked or typed.
+      (spec, None)            — Custom spec with an unrecognized provider
+                                (caller will surface a warning).
+
+    "Keep current" is offered iff `existing_spec` is non-empty and a
+    valid `<provider>/<model>` shape — same shape as openclaw's wizard.
+    """
+    parts = _parse_known_spec(existing_spec) if existing_spec else None
+    keep_offered = parts is not None
+
+    print("Pick a default model:")
+    options: list[tuple[str, str]] = []  # (key, label)
+    n = 1
+    if keep_offered:
+        options.append((_PICK_KEEP, f"Keep current ({existing_spec})"))
+        print(f"  {n}) Keep current ({existing_spec})")
+        n += 1
+    for m in MODEL_CHOICES:
+        options.append((m.spec, f"{m.spec}  — {m.label}"))
+        print(f"  {n}) {m.spec}  — {m.label}")
+        n += 1
+    options.append((_PICK_CUSTOM, "Custom — type any <provider>/<model> string"))
+    print(f"  {n}) Custom — type any <provider>/<model> string")
+    n += 1
+    options.append((_PICK_SKIP, "Skip — fall back to the local `claude` CLI"))
+    print(f"  {n}) Skip — fall back to the local `claude` CLI")
+
     while True:
-        raw = input(f"Choice [1-{len(PROVIDER_CHOICES) + 1}]: ").strip()
+        raw = input(f"Choice [1-{len(options)}]: ").strip()
         if raw.isdigit():
-            n = int(raw)
-            if 1 <= n <= len(PROVIDER_CHOICES):
-                return PROVIDER_CHOICES[n - 1]
-            if n == len(PROVIDER_CHOICES) + 1:
-                return None
+            idx = int(raw)
+            if 1 <= idx <= len(options):
+                key, _label = options[idx - 1]
+                break
         print("  invalid, try again")
+
+    if key == _PICK_SKIP:
+        return "", None
+    if key == _PICK_KEEP:
+        assert parts is not None
+        return existing_spec, find_provider(parts[0])
+    if key == _PICK_CUSTOM:
+        while True:
+            spec = input("  Model spec (<provider>/<model>): ").strip()
+            parts2 = _parse_known_spec(spec)
+            if parts2 is not None:
+                return spec, find_provider(parts2[0])
+            if "/" in spec:
+                # Right shape, unknown provider — let it through with a warning.
+                provider_name, _, _ = spec.partition("/")
+                print(f"  warning: provider {provider_name!r} is not registered in coii.")
+                print("  the wizard will skip the API key + endpoint prompts for it;")
+                print("  configure them manually with `coii config set` later.")
+                return spec, None
+            print("  expected `<provider>/<model>`, e.g. `anthropic/claude-sonnet-4-6`")
+    # known model from MODEL_CHOICES
+    return key, find_provider(find_model(key).provider)  # type: ignore[union-attr]
 
 
 def _collect_interactive(
@@ -296,22 +412,38 @@ def _collect_interactive(
     new_env: dict[str, str] = {}
     cfg_updates: dict = {}
 
-    _print_header("LLM provider")
-    provider = _pick_provider()
-    if provider is None:
+    _print_header("LLM provider & model")
+    existing_spec = (raw_cfg.get("models") or {}).get("default") or ""
+    spec, provider = _pick_model(existing_spec)
+    if not spec:
         print("  ok — leaving model+keys blank.")
         print("  the runtime will fall back to the local `claude` CLI if it's installed.")
     else:
-        print(f"  get a key here: {provider.help_url}")
-        existing_key = existing.get(provider.env_key, "")
-        existing_hint = f" [keep existing {provider.env_key[:6]}…]" if existing_key else ""
-        key = _ask_secret(f"Paste {provider.env_key}{existing_hint}")
-        if key:
-            new_env[provider.env_key] = key
-        elif not existing_key:
-            print(f"  no key provided — {provider.env_key} stays blank")
-        existing_default = (raw_cfg.get("models") or {}).get("default") or provider.default_model
-        cfg_updates["model_spec"] = _ask("Default model spec", default=existing_default)
+        cfg_updates["model_spec"] = spec
+        if provider is None:
+            print(f"  → {spec}  (provider not registered — skipping key/endpoint prompts)")
+        else:
+            print(f"  → {spec}")
+            print(f"  get a key here: {provider.help_url}")
+            existing_key = existing.get(provider.env_key, "")
+            existing_hint = f" [keep existing {provider.env_key[:6]}…]" if existing_key else ""
+            key = _ask_secret(f"Paste {provider.env_key}{existing_hint}")
+            if key:
+                new_env[provider.env_key] = key
+            elif not existing_key:
+                print(f"  no key provided — {provider.env_key} stays blank")
+
+            # API endpoint — defaults to the provider's official URL. Override
+            # when the key targets a proxy / regional gateway / OpenAI-compatible
+            # server. Storing the official URL explicitly is fine; storing an
+            # empty string drops a previous override.
+            existing_base = ((raw_cfg.get("models") or {}).get("providers") or {}).get(
+                provider.name, {}
+            ).get("base_url") or provider.default_base_url
+            print("  Leave the default unless your key points at a proxy / gateway.")
+            base_url = _ask("API endpoint URL", default=existing_base).strip()
+            cfg_updates["provider_name"] = provider.name
+            cfg_updates["provider_base_url"] = base_url
 
     _print_header("Linear (tracker)")
     print("  Need a Linear *personal* API token (NOT an OAuth client / workspace key).")
@@ -353,6 +485,7 @@ def _collect_non_interactive(
       ``COII_WIZARD_PROVIDER``     anthropic | openai | skip   (default: skip)
       ``COII_WIZARD_API_KEY``      provider API key            (required if provider != skip)
       ``COII_WIZARD_MODEL``        model spec                  (default: provider's default)
+      ``COII_WIZARD_BASE_URL``     provider endpoint URL        (optional — overrides SDK default)
       ``LINEAR_API_KEY``           Linear personal token        (required)
       ``LINEAR_TEAM_KEY``          team short-code              (optional — polling disabled if blank)
       ``LINEAR_WEBHOOK_SECRET``    signing secret               (optional — only written if set)
@@ -372,6 +505,10 @@ def _collect_non_interactive(
             raise SystemExit("COII_WIZARD_API_KEY required when COII_WIZARD_PROVIDER is set")
         new_env[provider.env_key] = api_key
         cfg_updates["model_spec"] = os.getenv("COII_WIZARD_MODEL") or provider.default_model
+        base_url = os.getenv("COII_WIZARD_BASE_URL")
+        if base_url is not None:
+            cfg_updates["provider_name"] = provider.name
+            cfg_updates["provider_base_url"] = base_url
 
     linear_key = os.getenv("LINEAR_API_KEY") or ""
     if not linear_key:

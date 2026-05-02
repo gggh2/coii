@@ -134,6 +134,29 @@ class TestLoadV2:
         assert cfg.models.default == "openai/gpt-4o"
         assert cfg.models.providers["openai"].api_key == "sk-x"
 
+    def test_provider_base_url_round_trip(self, coii_dir, monkeypatch):
+        _write(coii_dir / "config.json", {
+            "version": 2,
+            "models": {
+                "providers": {
+                    "anthropic": {
+                        "type": "anthropic",
+                        "api_key": {"source": "env", "id": "ANTHROPIC_API_KEY"},
+                        "base_url": "https://proxy.example.com",
+                    },
+                    "openai": {  # no base_url → falls through
+                        "type": "openai",
+                        "api_key": {"source": "env", "id": "OPENAI_API_KEY"},
+                    },
+                },
+            },
+        })
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-x")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-x")
+        cfg = config.load()
+        assert cfg.models.providers["anthropic"].base_url == "https://proxy.example.com"
+        assert cfg.models.providers["openai"].base_url is None
+
 
 # ---------------------------------------------------------------------------
 # env precedence chain
